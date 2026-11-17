@@ -180,3 +180,12 @@ in GitHub package settings. The source repository being public is not sufficient
 
 GitHub does not deploy into any cluster. Cluster provisioning, secrets and
 deployment automation belong in your own infrastructure repository.
+
+## License
+
+Herdr Hub's original code is licensed under the [MIT License](LICENCE.md),
+copyright 2026 Andreas Werner. Bundled Herdr remains Apache-2.0 licensed;
+Ovis remains MIT licensed. These components can be distributed alongside
+Herdr Hub, provided their respective license and notice requirements are
+preserved. See [third-party licensing](THIRD_PARTY_NOTICES.md) for the pinned
+versions, upstream sources, retained notices and distribution scope.

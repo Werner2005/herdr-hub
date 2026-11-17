@@ -43,6 +43,8 @@ COPY docker/persist-packages.sh /usr/local/bin/herdr-persist-packages
 COPY docker/startup.sh /usr/local/share/herdr/startup.sh
 COPY docker/skills /usr/local/share/herdr/skills/
 COPY docker/update-packages.sh /usr/local/bin/herdr-update-packages
+COPY LICENCE.md THIRD_PARTY_NOTICES.md /usr/local/share/licenses/herdr-hub/
+COPY licenses/ /usr/local/share/licenses/herdr-hub/third-party/
 COPY docker/init-home.sh /usr/local/bin/herdr-init-home
 COPY docker/download-runtime.sh /usr/local/share/herdr/download-runtime.sh
 COPY --from=ovis-test /ovis-test/ovis-preload.ts /usr/local/share/herdr/ovis-preload.ts

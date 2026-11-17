@@ -16,6 +16,7 @@ COPY --from=web-build /web/dist ./app/web/dist
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/herdr-hub ./app
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+COPY LICENCE.md /usr/share/licenses/herdr-hub/LICENCE.md
 COPY --from=build /out/herdr-hub /herdr-hub
 COPY --from=build /src/app/web/dist /app/web/dist
 ENV WEB_DIST_DIR=/app/web/dist

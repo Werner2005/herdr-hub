@@ -1,0 +1,127 @@
+replicaCount: 1
+
+# Requires a CNI that enforces Kubernetes NetworkPolicy. Policies are additive:
+# other allow-all policies can defeat these restrictions.
+networkPolicy:
+  enabled: true
+  gatewayNamespaceSelector: {}
+  # Empty uses Envoy's owning-gateway-name/namespace labels.
+  gatewayPodSelector: {}
+  dnsNamespaceSelector:
+    kubernetes.io/metadata.name: kube-system
+  dnsPodSelector:
+    k8s-app: kube-dns
+  databasePodSelector:
+    cnpg.io/cluster: herdr-db
+  # CNPG operator probes/control require access to the instance manager.
+  operatorNamespaceSelector:
+    kubernetes.io/metadata.name: cnpg-system
+  operatorPodSelector:
+    app.kubernetes.io/name: cloudnative-pg
+  allowWorkspaceInternet: true
+  blockedIPv4CIDRs:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 127.0.0.0/8
+    - 169.254.0.0/16
+  # Explicit opt-in exceptions, expressed as NetworkPolicy egress rules.
+  workspaceExtraEgress: []
+
+hub:
+  # Serve Swagger UI and the OpenAPI specification under /docs.
+  docsEnabled: true
+  existingSecret: ""
+  tokenKey: token
+  # Optional bootstrap account. Password comes from existingSecret.
+  adminUsername: ""
+  adminPasswordKey: admin-password
+  # Only for local HTTP development; production uses __Host- Secure cookies.
+  insecureCookies: false
+  # Comma-separated CIDRs of trusted reverse proxies. Empty ignores X-Forwarded-For.
+  trustedProxyCIDRs: ""
+
+workspaces:
+  image: ghcr.io/werner2005/herdr-hub/workspace:v0.1
+  imagePullPolicy: IfNotPresent
+  domain: ""
+  gatewayName: ""
+  gatewayNamespace: networking
+  webListener: https
+  sshHost: ""
+  # Legacy static listeners; new workspaces get dynamic listeners.
+  sshListeners: {}
+  sshPortStart: 2201
+  sshPortEnd: 2299
+  # Dedicated external HTTPS/TCP/UDP ports, automatically allocated across protocols.
+  exportPortStart: 2300
+  exportPortEnd: 2399
+  storageClass: ""
+  storageSize: 10Gi
+  # Optional sandbox RuntimeClass provisioned by the cluster administrator.
+  runtimeClassName: ""
+
+# Optional DNS label. When set, this is used for the Deployment and Service names.
+subdomain: ""
+
+image:
+  repository: ghcr.io/werner2005/herdr-hub/hub
+  tag: v0.1
+  pullPolicy: IfNotPresent
+
+# Existing registry credentials in the release namespace.
+imagePullSecrets: []
+
+service:
+  type: NodePort
+  port: 8080
+  nodePort: 30080
+
+database:
+  # Set this to the address of your separately managed PostgreSQL service.
+  host: ""
+  port: 5432
+  database: herdr
+  username: herdr
+  sslmode: require
+  # Create this Secret in the release namespace before installing the chart.
+  existingSecret: ""
+  passwordKey: password
+
+gateway:
+  enabled: false
+  # Create a Gateway, or attach the HTTPRoute to an existing one.
+  create: false
+  className: ""
+  tlsSecret: ""
+  certificate:
+    enabled: false
+    # Optional issuance target when staging a certificate before switching TLS.
+    secretName: ""
+    issuerRef:
+      name: ""
+      kind: ClusterIssuer
+      group: cert-manager.io
+    # Empty covers the Hub hostname and all workspace subdomains.
+    dnsNames: []
+  address: ""
+  # Explicit Hub hostname; empty uses <subdomain>.<domain>.
+  hostname: ""
+  # Empty lets the listener accept the Hub hostname and workspace subdomains.
+  listenerHostname: ""
+  name: ""
+  namespace: ""
+  sectionName: ""
+  # DNS suffix; the route host is <subdomain>.<domain>.
+  domain: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+startupProbe:
+  failureThreshold: 36
+  periodSeconds: 5

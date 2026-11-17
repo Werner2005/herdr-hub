@@ -1,0 +1,16 @@
+{
+  "name": "Herdr AI Dev Container",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "forwardPorts": [7317],
+  "portsAttributes": {
+    "7317": {
+      "label": "Herdr Web UI",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  "remoteUser": "dev",
+  "workspaceFolder": "/home/dev/workspace"
+}

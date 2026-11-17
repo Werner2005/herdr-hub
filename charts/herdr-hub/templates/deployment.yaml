@@ -1,0 +1,139 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "herdr-hub.fullname" . }}
+  labels:
+    {{- include "herdr-hub.labels" . | nindent 4 }}
+spec:
+  {{- if ne (int .Values.replicaCount) 1 }}
+  {{- fail "Herdr Hub provisioner currently requires replicaCount=1" }}
+  {{- end }}
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "herdr-hub.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "herdr-hub.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "herdr-hub.fullname" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: herdr-hub
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: HUB_DOCS_ENABLED
+              value: {{ .Values.hub.docsEnabled | quote }}
+            - name: HUB_INSECURE_COOKIES
+              value: {{ .Values.hub.insecureCookies | quote }}
+            - name: HUB_TRUSTED_PROXY_CIDRS
+              value: {{ .Values.hub.trustedProxyCIDRs | quote }}
+            - name: WORKSPACE_RUNTIME_CLASS
+              value: {{ .Values.workspaces.runtimeClassName | quote }}
+            - name: HUB_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "Set hub.existingSecret" .Values.hub.existingSecret }}
+                  key: {{ .Values.hub.tokenKey }}
+            {{- if .Values.hub.adminUsername }}
+            - name: HUB_ADMIN_USERNAME
+              value: {{ .Values.hub.adminUsername | quote }}
+            - name: HUB_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.hub.existingSecret }}
+                  key: {{ .Values.hub.adminPasswordKey }}
+            {{- end }}
+            - name: WORKSPACE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: WORKSPACE_IMAGE
+              value: {{ .Values.workspaces.image | quote }}
+            - name: WORKSPACE_IMAGE_PULL_POLICY
+              value: {{ .Values.workspaces.imagePullPolicy | quote }}
+            - name: WORKSPACE_DOMAIN
+              value: {{ required "Set workspaces.domain" .Values.workspaces.domain | quote }}
+            - name: WORKSPACE_GATEWAY
+              value: {{ required "Set workspaces.gatewayName" .Values.workspaces.gatewayName | quote }}
+            - name: WORKSPACE_GATEWAY_NAMESPACE
+              value: {{ .Values.workspaces.gatewayNamespace | quote }}
+            - name: WORKSPACE_WEB_LISTENER
+              value: {{ .Values.workspaces.webListener | quote }}
+            - name: WORKSPACE_SSH_HOST
+              value: {{ .Values.workspaces.sshHost | quote }}
+            - name: WORKSPACE_SSH_LISTENERS
+              value: {{ .Values.workspaces.sshListeners | toJson | quote }}
+            - name: WORKSPACE_SSH_PORT_START
+              value: {{ .Values.workspaces.sshPortStart | quote }}
+            - name: WORKSPACE_SSH_PORT_END
+              value: {{ .Values.workspaces.sshPortEnd | quote }}
+            - name: WORKSPACE_EXPORT_PORT_START
+              value: {{ .Values.workspaces.exportPortStart | quote }}
+            - name: WORKSPACE_EXPORT_PORT_END
+              value: {{ .Values.workspaces.exportPortEnd | quote }}
+            - name: WORKSPACE_GATEWAY_POD_SELECTOR
+              value: {{ .Values.networkPolicy.gatewayPodSelector | toJson | quote }}
+            - name: WORKSPACE_GATEWAY_NAMESPACE_SELECTOR
+              value: {{ .Values.networkPolicy.gatewayNamespaceSelector | toJson | quote }}
+            - name: WORKSPACE_NETWORK_POLICY_ENABLED
+              value: {{ .Values.networkPolicy.enabled | quote }}
+            - name: WORKSPACE_STORAGE_CLASS
+              value: {{ .Values.workspaces.storageClass | quote }}
+            - name: WORKSPACE_STORAGE_SIZE
+              value: {{ .Values.workspaces.storageSize | quote }}
+            - name: PORT
+              value: "8080"
+            - name: DB_HOST
+              value: {{ required "Set database.host to the external PostgreSQL hostname" .Values.database.host | quote }}
+            - name: DB_PORT
+              value: {{ .Values.database.port | quote }}
+            - name: DB_NAME
+              value: {{ .Values.database.database | quote }}
+            - name: DB_USER
+              value: {{ .Values.database.username | quote }}
+            - name: DB_SSLMODE
+              value: {{ .Values.database.sslmode | quote }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "Set database.existingSecret to a Secret containing the PostgreSQL password" .Values.database.existingSecret }}
+                  key: {{ .Values.database.passwordKey }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

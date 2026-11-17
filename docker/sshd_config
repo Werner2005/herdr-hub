@@ -1,0 +1,21 @@
+Port 2222
+ListenAddress 0.0.0.0
+HostKey /home/dev/.ssh/hostkeys/ssh_host_ed25519_key
+PidFile /run/sshd/sshd.pid
+AuthorizedKeysFile /run/ssh-keys/authorized_keys
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+PermitEmptyPasswords no
+StrictModes yes
+AllowUsers dev
+SetEnv PATH=/home/dev/.local/bin:/home/dev/.bun/bin:/usr/local/bin:/usr/bin:/bin
+AllowTcpForwarding yes
+GatewayPorts no
+X11Forwarding no
+PermitTTY yes
+UsePAM no
+LogLevel VERBOSE
+Subsystem sftp internal-sftp

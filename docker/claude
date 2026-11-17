@@ -1,0 +1,3 @@
+#!/bin/bash
+# npm 12 requires approval for the script that prepares Claude's native binary.
+exec npx --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code@latest "$@"

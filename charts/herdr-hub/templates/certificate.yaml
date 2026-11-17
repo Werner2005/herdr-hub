@@ -1,0 +1,30 @@
+{{- if .Values.gateway.certificate.enabled }}
+{{- if not .Values.gateway.enabled }}
+{{- fail "gateway.certificate.enabled requires gateway.enabled=true" }}
+{{- end }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "herdr-hub.fullname" . }}-gateway-tls
+  labels:
+    {{- include "herdr-hub.labels" . | nindent 4 }}
+spec:
+  secretName: {{ required "Set gateway.tlsSecret or gateway.certificate.secretName" (default .Values.gateway.tlsSecret .Values.gateway.certificate.secretName) }}
+  issuerRef:
+    name: {{ required "Set gateway.certificate.issuerRef.name" .Values.gateway.certificate.issuerRef.name }}
+    kind: {{ .Values.gateway.certificate.issuerRef.kind }}
+    group: {{ .Values.gateway.certificate.issuerRef.group }}
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+    {{- if .Values.gateway.certificate.dnsNames }}
+    {{- toYaml .Values.gateway.certificate.dnsNames | nindent 4 }}
+    {{- else }}
+    {{- if .Values.gateway.hostname }}
+    - {{ .Values.gateway.hostname | quote }}
+    {{- else }}
+    - {{ printf "%s.%s" (required "Set subdomain" .Values.subdomain) (required "Set gateway.domain" .Values.gateway.domain) | quote }}
+    {{- end }}
+    - {{ printf "*.%s" (required "Set workspaces.domain" .Values.workspaces.domain) | quote }}
+    {{- end }}
+{{- end }}

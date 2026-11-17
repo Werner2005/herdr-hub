@@ -1,0 +1,3 @@
+#!/bin/bash
+# Approve the optional terminal and credential-store installation scripts on npm 12.
+exec npx --allow-scripts=@lydell/node-pty,node-pty,@github/keytar @google/gemini-cli@latest "$@"

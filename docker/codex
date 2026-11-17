@@ -1,0 +1,2 @@
+#!/bin/bash
+exec npx @openai/codex --sandbox danger-full-access "$@"

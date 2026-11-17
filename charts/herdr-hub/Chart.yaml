@@ -1,0 +1,11 @@
+apiVersion: v2
+name: herdr-hub
+description: Kubernetes workspace provisioner for Herdr and Ovis
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/Werner2005/herdr-hub
+sources:
+  - https://github.com/Werner2005/herdr-hub
+annotations:
+  org.opencontainers.image.source: https://github.com/Werner2005/herdr-hub

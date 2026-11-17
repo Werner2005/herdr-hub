@@ -1,0 +1,34 @@
+# Generic installation example. Replace DNS, database, StorageClass and issuer.
+subdomain: hub
+service:
+  type: ClusterIP
+hub:
+  existingSecret: herdr-hub-auth
+  adminUsername: admin
+database:
+  host: herdr-db-rw
+  database: herdr
+  username: herdr
+  sslmode: require
+  existingSecret: herdr-db-app
+workspaces:
+  domain: apps.example.com
+  gatewayName: herdr-gateway
+  gatewayNamespace: herdr
+  sshHost: ssh.apps.example.com
+  storageClass: standard
+gateway:
+  enabled: true
+  create: true
+  className: envoy
+  name: herdr-gateway
+  namespace: herdr
+  hostname: hub.apps.example.com
+  domain: apps.example.com
+  sectionName: https
+  tlsSecret: herdr-gateway-tls
+  certificate:
+    enabled: true
+    issuerRef:
+      name: letsencrypt
+      kind: ClusterIssuer

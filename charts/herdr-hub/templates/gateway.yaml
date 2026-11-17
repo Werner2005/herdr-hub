@@ -1,0 +1,54 @@
+{{- if .Values.gateway.create }}
+{{- if not .Values.gateway.enabled }}
+{{- fail "gateway.create requires gateway.enabled=true" }}
+{{- end }}
+{{- if and .Values.gateway.namespace (ne .Values.gateway.namespace .Release.Namespace) }}
+{{- fail "A chart-created Gateway must use the release namespace" }}
+{{- end }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ required "Set gateway.name" .Values.gateway.name }}
+  labels:
+    {{- include "herdr-hub.labels" . | nindent 4 }}
+spec:
+  gatewayClassName: {{ required "Set gateway.className" .Values.gateway.className }}
+  {{- with .Values.gateway.address }}
+  addresses:
+    - type: IPAddress
+      value: {{ . | quote }}
+  {{- end }}
+  listeners:
+    - name: {{ required "Set gateway.sectionName" .Values.gateway.sectionName }}
+      protocol: HTTPS
+      port: 443
+      {{- with .Values.gateway.listenerHostname }}
+      hostname: {{ . | quote }}
+      {{- end }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ required "Set gateway.tlsSecret" .Values.gateway.tlsSecret }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- range $name, $port := .Values.workspaces.sshListeners }}
+    - name: {{ $name }}
+      protocol: TCP
+      port: {{ $port }}
+      allowedRoutes:
+        kinds:
+          - kind: TCPRoute
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- /* Preserve Hub-managed listeners when upgrading the release. */}}
+    {{- $existing := lookup "gateway.networking.k8s.io/v1" "Gateway" .Release.Namespace .Values.gateway.name }}
+    {{- if $existing }}
+    {{- range $listener := $existing.spec.listeners }}
+    {{- if and (hasPrefix "herdr-" $listener.name) (not (hasKey $.Values.workspaces.sshListeners $listener.name)) }}
+    {{- toYaml (list $listener) | nindent 4 }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+{{- end }}

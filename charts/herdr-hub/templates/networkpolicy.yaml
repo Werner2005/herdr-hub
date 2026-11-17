@@ -1,0 +1,88 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $gatewayPods := .Values.networkPolicy.gatewayPodSelector | default (dict "gateway.envoyproxy.io/owning-gateway-name" .Values.workspaces.gatewayName "gateway.envoyproxy.io/owning-gateway-namespace" (default .Release.Namespace .Values.workspaces.gatewayNamespace)) }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "herdr-hub.fullname" . }}-workspaces
+spec:
+  podSelector:
+    matchExpressions:
+      - key: herdr-hub/workspace
+        operator: Exists
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {{ toJson .Values.networkPolicy.gatewayNamespaceSelector }}
+          podSelector:
+            matchLabels: {{ toJson $gatewayPods }}
+      ports:
+        - {protocol: TCP, port: 7317}
+        - {protocol: TCP, port: 2222}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {{ toJson .Values.networkPolicy.dnsNamespaceSelector }}
+          podSelector:
+            matchLabels: {{ toJson .Values.networkPolicy.dnsPodSelector }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    {{- if .Values.networkPolicy.allowWorkspaceInternet }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml .Values.networkPolicy.blockedIPv4CIDRs | nindent 14 }}
+    {{- end }}
+    {{- with .Values.networkPolicy.workspaceExtraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "herdr-hub.fullname" . }}-ingress
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "herdr-hub.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              herdr-hub/api-test: {{ include "herdr-hub.fullname" . | quote }}
+        - namespaceSelector:
+            matchLabels: {{ toJson .Values.networkPolicy.gatewayNamespaceSelector }}
+          podSelector:
+            matchLabels: {{ toJson $gatewayPods }}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "herdr-hub.fullname" . }}-database
+spec:
+  podSelector:
+    matchLabels: {{ toJson .Values.networkPolicy.databasePodSelector }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "herdr-hub.selectorLabels" . | nindent 14 }}
+        # Replication between CNPG instances, not workspace access.
+        - podSelector:
+            matchLabels: {{ toJson .Values.networkPolicy.databasePodSelector }}
+      ports:
+        - {protocol: TCP, port: {{ .Values.database.port }}}
+    - from:
+        - namespaceSelector:
+            matchLabels: {{ toJson .Values.networkPolicy.operatorNamespaceSelector }}
+          podSelector:
+            matchLabels: {{ toJson .Values.networkPolicy.operatorPodSelector }}
+      ports:
+        - {protocol: TCP, port: 8000}
+{{- end }}

@@ -1,0 +1,193 @@
+name: Verify and publish
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_DB: herdr_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-only-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:test-only-password@localhost:5432/herdr_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.3'
+      - run: go test -race ./app
+      - run: go vet ./app
+      - run: go mod verify
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+      - run: govulncheck ./app
+
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: node --test web/src/*.test.js
+      - run: npm --prefix web run build
+      - run: npm --prefix web audit --audit-level=high
+
+  chart:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+        with:
+          version: v3.19.0
+      - run: helm lint charts/herdr-hub -n herdr -f examples/values.yaml
+      - run: helm template herdr-hub charts/herdr-hub -n herdr -f examples/values.yaml > /dev/null
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+      - name: Validate release version
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: python3 .github/scripts/release-version.py "$TAG"
+
+  build:
+    if: github.event_name != 'pull_request'
+    needs: [go, web, chart]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [workspace, hub]
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: settings
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          echo "epoch=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          if [ "$IMAGE" = hub ]; then
+            echo "dockerfile=Dockerfile.app" >> "$GITHUB_OUTPUT"
+          else
+            echo "dockerfile=Dockerfile" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        id: build
+        with:
+          context: .
+          file: ${{ steps.settings.outputs.dockerfile }}
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          tags: ghcr.io/werner2005/herdr-hub/${{ matrix.image }}:staging-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+          build-args: SECURITY_UPDATE_EPOCH=${{ steps.settings.outputs.epoch }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }},mode=max
+          sbom: true
+          provenance: mode=min
+          labels: |
+            org.opencontainers.image.source=https://github.com/Werner2005/herdr-hub
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Scan exact built digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ matrix.image }}
+          ARCH: ${{ matrix.arch }}
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm \
+            -e TRIVY_USERNAME -e TRIVY_PASSWORD \
+            aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa \
+            image --timeout 30m --no-progress --platform "linux/$ARCH" \
+            --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            "ghcr.io/werner2005/herdr-hub/$IMAGE@$DIGEST"
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+        with:
+          version: v3.19.0
+      - name: Publish gated manifests
+        env:
+          REF: ${{ github.ref }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          for image in workspace hub; do
+            base="ghcr.io/werner2005/herdr-hub/$image"
+            staging="$base:staging-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+            tags=(--tag "$base:$GITHUB_SHA")
+            if [[ "$REF" == refs/tags/* ]]; then
+              tags+=(--tag "$base:$TAG" --tag "$base:latest")
+            else
+              tags+=(--tag "$base:main")
+            fi
+            docker buildx imagetools create "${tags[@]}" "$staging-amd64" "$staging-arm64"
+          done
+      - name: Publish release chart and GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(python3 .github/scripts/release-version.py "$TAG")
+          echo "$GH_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          helm package charts/herdr-hub --version "$version" --app-version "$version" --destination dist
+          helm push "dist/herdr-hub-$version.tgz" oci://ghcr.io/werner2005/herdr-hub/charts
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "dist/herdr-hub-$version.tgz" --clobber
+          else
+            gh release create "$TAG" "dist/herdr-hub-$version.tgz" \
+              --verify-tag --title "Herdr Hub $TAG" --generate-notes
+          fi

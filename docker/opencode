@@ -1,0 +1,3 @@
+#!/bin/bash
+# npm 12 requires approval for OpenCode's native-binary postinstall script.
+exec npx --allow-scripts=@opencode/cli @opencode/cli@latest "$@"

@@ -1,0 +1,31 @@
+# Local configuration and credentials
+/tools/secrets/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# JavaScript build/dependency output
+node_modules/
+web/dist/
+coverage/
+
+# Go build/test output
+/herdr-hub
+/notes-api
+*.test
+*.out
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Python helper test caches
+__pycache__/

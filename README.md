@@ -6,6 +6,14 @@ SSH keys, configuration mappings, network access and exported application ports.
 Each workspace provides an [Ovis](https://github.com/devswha/ovis) web terminal,
 SSH, development tools and a persistent home directory.
 
+An experimental Go CLI named **`herdr-hub`** is under development for launching
+resource-limited child workloads without a privileged Docker daemon. The first
+slice provides local request validation and an HTTP client/API contract only;
+**the Hub backend does not implement these endpoints yet**. See
+[the CLI development guide](docs/workload-cli.md) for supported syntax, volume
+semantics and the remaining security/lifecycle work. Nothing is enabled or
+installed into workspace images automatically.
+
 ## Public artifacts
 
 | Artifact | Location |

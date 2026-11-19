@@ -1,0 +1,56 @@
+{{- if and .Values.workloads.enabled (not .Values.networkPolicy.enabled) }}
+{{- fail "workloads.enabled requires networkPolicy.enabled and an enforcing CNI" }}
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+{{- if .Values.workloads.enabled }}
+{{- $gatewayPods := .Values.networkPolicy.gatewayPodSelector | default (dict "gateway.envoyproxy.io/owning-gateway-name" .Values.workspaces.gatewayName "gateway.envoyproxy.io/owning-gateway-namespace" (default .Release.Namespace .Values.workspaces.gatewayNamespace)) }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "herdr-hub.fullname" . }}-workload-api
+spec:
+  podSelector:
+    matchExpressions:
+      - key: herdr-hub/workspace
+        operator: Exists
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {{ toJson .Values.networkPolicy.gatewayNamespaceSelector }}
+          podSelector:
+            matchLabels: {{ toJson $gatewayPods }}
+      ports:
+        - {protocol: TCP, port: 443}
+---
+{{- end }}
+# Keep the child baseline when the feature is disabled: previously created
+# workloads must not lose isolation. Per-child policies also enforce default deny.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "herdr-hub.fullname" . }}-children
+spec:
+  podSelector:
+    matchExpressions:
+      - key: herdr-hub/child-parent
+        operator: Exists
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {{ toJson .Values.networkPolicy.dnsNamespaceSelector }}
+          podSelector:
+            matchLabels: {{ toJson .Values.networkPolicy.dnsPodSelector }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    {{- if .Values.networkPolicy.allowWorkspaceInternet }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml .Values.networkPolicy.blockedIPv4CIDRs | nindent 14 }}
+    {{- end }}
+{{- end }}

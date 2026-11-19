@@ -33,7 +33,7 @@ func TestWorkspaceLifecycle(t *testing.T) {
 	if err = initializeDatabase(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(ctx, "TRUNCATE workspaces, workspace_configurations, workspace_ports, workspace_egress, hub_egress_defaults")
+	_, err = db.Exec(ctx, "TRUNCATE hub_child_access, hub_child_tokens, hub_children, hub_child_volumes, workspaces, workspace_configurations, workspace_ports, workspace_egress, hub_egress_defaults")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,6 +12,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY app ./app
+COPY internal ./internal
 COPY --from=web-build /web/dist ./app/web/dist
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/herdr-hub ./app
 

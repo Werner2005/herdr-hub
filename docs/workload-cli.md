@@ -2,20 +2,68 @@
 
 ## Status and scope
 
-This is the first implementation slice: a Go CLI, a typed workload contract and
-an HTTPS client with mock-server tests. **There is no workload backend yet.**
-The current Hub returns 404 for these endpoints and cannot issue workload
-credentials. Do not put an administrator or workspace web token into this CLI.
-There are no new RBAC permissions, Helm switches, database tables or cluster
-changes. The CLI is not automatically included in workspace images or releases.
+The Go CLI and default-off Hub backend implement scoped workload creation,
+inspection, removal, private networking, PVCs, log snapshots and bounded
+non-interactive exec. The workspace image includes the `herdr-hub` CLI.
+Do not put an administrator or workspace web token into this CLI.
 
-The immediate executable feature is `run --dry-run`. Other commands implement
-requests against the proposed API and are tested with fake/TLS HTTP servers.
-They do not launch real containers until the backend is implemented.
+The backend uses the existing namespace with parent-scoped database reservations,
+immutable random resource IDs and Kubernetes limits. It does not provision
+namespace-per-group quotas. Integration tests use dedicated PostgreSQL and a
+simulated Kubernetes API (including real WebSocket exec framing); production
+admission, storage and CNI behavior still need isolated-cluster validation.
+Source changes do not enable the feature or deploy anything.
+
+## Enable and authorize (administrator)
+
+Enable `workloads.enabled: true` in Helm values. Enforced NetworkPolicy is required;
+Helm refuses `networkPolicy.enabled: false` with this feature enabled.
+Enabling adds namespace Pod create/get/delete and Pod log/exec get permissions to
+the Hub, and permits workspace-to-Gateway HTTPS TCP 443 traffic. It does not give
+workspaces Kubernetes credentials.
+
+Through the normal authenticated Hub API:
+
+1. `PUT /api/workspaces/NAME/workload-access` (admin only):
+   ```json
+   {"enabled":true,"max_workloads":5,"cpu":"2","memory":"4Gi","storage_gi":20,"max_volumes":10}
+   ```
+2. `POST /api/workspaces/NAME/workload-token` (owner or admin). Store the returned
+   `token` in a regular mode-0600 file inside the workspace. It expires after
+   24 hours and replaces any previous credential. No automatic Secret injection
+   into an existing workspace is performed.
+3. Set `HERDR_HUB_URL` to the Hub's HTTPS origin and `HERDR_HUB_TOKEN_FILE` to
+   that private file. The gateway must present a trusted certificate. The CNI must
+   match the post-DNAT gateway pods; outside-cluster proxies may need an explicit
+   administrator-managed egress rule. The gateway allowance is L3/L4: it permits
+   all hostnames on that gateway's port 443, not just the Hub hostname.
+   For a private CA, install its certificate in the workspace trust store; do not
+   disable certificate verification.
+
+`DELETE .../workload-token` revokes access. Disabling the budget revokes its token
+and pauses pending launches, but does not kill running children or delete data.
+Cleanup and expiry reconciliation continue. Remove all children and child volumes
+before disabling the Helm feature, transferring, deleting, stopping or rotating
+the parent's credentials. These parent operations refuse retained child resources.
+Ownership transfer revokes scoped credentials and removes the old budget.
+To manually clean up after disabling a budget, an administrator must re-enable it
+and issue a new scoped credential.
+
+With access configured:
+
+```sh
+herdr-hub run -d --name web --expose 8080 \
+  python:3.13-alpine python -m http.server 8080
+herdr-hub inspect web                 # returns the private Service hostname
+herdr-hub exec web python -c 'print("hello from child")'
+herdr-hub logs web
+herdr-hub rm web
+```
 
 ## Build and local validation
 
-From the repository root, using the Go version in `go.mod`:
+From the repository root, using Go 1.27.4 or newer (the patched toolchain in
+`go.mod`, Docker builders and CI):
 
 ```sh
 go build -o herdr-hub ./cmd/herdr-hub
@@ -76,18 +124,23 @@ HERDR_HUB_WORKSPACE_ROOT="$HOME" ./herdr-hub run --dry-run \
 - Default local validation root is `/home/dev`; override with
   `HERDR_HUB_WORKSPACE_ROOT` for diagnostics. A caller changing this environment
   variable must never change what the Hub authorizes.
-- Directory sources must be PVC-backed and independently resolved by the Hub.
+- Directory sources are independently resolved against the parent's home PVC.
   Container-layer files and directories are not shared automatically.
-- Initial syntax supports directories, not individual file mounts.
+- The CLI supports directories, not individual file mounts. The Hub uses
+  kubelet's secure `subPath` handling; symlink sources may be rejected at startup.
+  It never resolves a client path on the Hub/node filesystem.
 - Targets must be clean absolute paths, not `/` or reserved kernel/service-account
   directories. Duplicate and overlapping mount targets are rejected.
 - Mode defaults to `rw`; `ro` is explicit. SELinux labels, propagation options
   and other Docker-specific suffixes are unsupported and rejected.
-- Anonymous volumes are intended to be dedicated quota-accounted PVCs; `--rm`
-  will remove them after confirmed workload cleanup. Named volumes survive.
-  This is a contract, not an implemented PVC lifecycle yet.
+- Anonymous volumes are dedicated budget-accounted PVCs. Missing named volumes
+  and each anonymous mount reserve 1Gi by default. Use `volume create --size`
+  for larger named volumes. Anonymous volumes are removed with their workload;
+  `--rm` also removes completed workloads asynchronously. Named volumes survive.
+  All child Pods are scheduled on the parent's node for RWO compatibility;
+  storage backend restrictions may still prevent a mount.
 
-Future backend volume commands:
+Volume commands:
 
 ```sh
 herdr-hub volume create db-data --size 5Gi
@@ -96,9 +149,9 @@ herdr-hub volume inspect db-data
 herdr-hub volume rm db-data
 ```
 
-The backend must refuse removal of referenced volumes, reserve storage before
-provisioning, verify access modes and scheduling compatibility, and avoid deleting
-named volumes when a workload is removed. `rm -v` is not implemented yet.
+The backend refuses removal of referenced volumes and reserves storage before
+provisioning. Once provisioned, a missing PVC is not recreated automatically.
+`rm -v` is not implemented; explicitly remove named volumes with `volume rm`.
 
 ## HTTP contract
 
@@ -118,11 +171,13 @@ derived from a scoped credential, never supplied in requests.
 | GET | `/volumes/{name}` | `workload.Volume` |
 | DELETE | `/volumes/{name}` | 204 after confirmed cleanup |
 
-Types are defined in `internal/workload`. The backend must reject unknown fields
-and enforce strict bounded decoding; the contract's structural validation alone
-is insufficient for authorization, image policy, quantity parsing or quotas.
+Types are defined in `internal/workload`; the served specification is
+`app/openapi.json`. Contract tests check all operations, scoped authentication and
+JSON property parity against the Go types. The backend rejects unknown fields and
+trailing JSON, parses quantities exactly and checks combined reservations while
+holding the Hub's cancellation-aware mutation lock.
 
-The intended CLI configuration is:
+CLI configuration:
 
 ```sh
 export HERDR_HUB_URL=https://hub.apps.example.com
@@ -130,7 +185,7 @@ export HERDR_HUB_TOKEN_FILE=/run/herdr-hub/workload-token
 ```
 
 Credentials use a distinct `hhw_` prefix plus 32 random bytes encoded as 64 hex
-characters. **Issuance is not implemented.** Files must be regular non-symlink
+characters. Only credential hashes are stored in PostgreSQL. Files must be regular non-symlink
 files without group/other access. There is no command-line token option.
 The HTTPS client uses normal CA verification, refuses redirects and limits
 requests to 64 KiB and decoded responses to 4 MiB. HTTP error bodies are not
@@ -145,45 +200,60 @@ herdr-hub exec database psql -U postgres
 herdr-hub exec database sh -c 'echo hello; exit 7'
 ```
 
-The future backend must bound captured output, runtime and concurrent executions.
+Exec uses Kubernetes `v4.channel.k8s.io` WebSocket channels. Logs/exec share a
+four-session global concurrency bound and a 30-second timeout; captured output is
+limited to 1MiB. Log snapshots additionally limit the tail to 10000 lines.
+These are text-oriented JSON responses, not a binary streaming interface.
+Revocation blocks new requests but an already-authorized operation may finish
+within its 30-second bound. Long-running I/O does not hold the mutation lock.
+The timeout bounds the I/O session, not guaranteed process termination: a custom
+command can keep running after disconnect. It remains inside the Pod's resource
+limits and lifetime. Use an explicit process supervisor/timeout when needed.
+
+## Lifecycle and security boundaries
+
+- Child Pods run as UID/GID 1001 with all capabilities dropped, no privilege
+  escalation, RuntimeDefault seccomp and no Kubernetes service-account token.
+  Images requiring root, privileged setup, devices or a different UID may fail;
+  privileges are never silently broadened. An administrator may configure the
+  existing workspace sandbox RuntimeClass for stronger isolation.
+- Requests equal limits for CPU/memory; ephemeral storage has a 1Gi request/limit.
+  Storage eviction is not a hard disk quota, and PID limits depend on the
+  cluster's kubelet/runtime configuration. Images are arbitrary executable code:
+  use sandboxed nodes and cluster admission/image policy appropriate to your trust.
+- Parent and sibling access uses Hub-owned labels and NetworkPolicy. Only exposed
+  TCP ports accept inbound connections on children. Children may connect to any
+  port on their parent (same trust group). Child egress receives DNS/public
+  Internet according to chart settings but not workspace-specific or global
+  private-egress exceptions. IPv6 has no general Internet allow rule.
+- SQL stores desired lifecycle/resource/mount metadata, not env contents.
+  Environment values live only in an immutable Kubernetes Secret. A failed
+  initial Secret write leaves a removable error reservation, not a workload
+  silently launched with missing environment.
+- All states, including completed and deleting workloads, retain CPU/memory/count
+  reservations until confirmed cleanup. Named/anonymous PVCs retain storage
+  reservations until their deletion is confirmed. `--rm` cleanup is reconciled
+  independently of CLI connectivity.
+- Workloads expire after eight hours. Persisted launch intent prevents automatic
+  re-execution after a crash or external Pod deletion; ambiguous/missing launches
+  become `lost` and require explicit removal/recreation. Missing previously
+  provisioned PVCs are never silently recreated with empty data.
+- The existing one-replica/Recreate Hub requirement remains: application-level
+  combined budgets rely on its serialized mutation lock and transactional
+  reservations. Namespace quotas are not a replacement for that requirement.
+
+## Verification and remaining work
+
+`go test -race ./...` with a dedicated `TEST_DATABASE_URL` exercises credentials,
+ownership isolation, reservations, cleanup failures, retained volumes, missing
+Pods/PVCs, expiry, HTTP/client interoperability and WebSocket exec status handling.
+Never use a production database: existing integration tests truncate tables.
+
+Before production enablement, validate admission, read-only/subPath mounts, RWO/RWX
+scheduling, networking (including CNI/DNAT and IPv6) and exec protocol support in
+an isolated cluster. Integration tests simulate Kubernetes, not its kernel or CNI.
 Interactive exec/attach, TTY resize, log following, start/stop, port forwarding,
-secret references and automated binary distribution remain follow-on work.
-
-## Backend implementation gates
-
-Before enabling real workload creation:
-
-1. **Scoped authentication:** issue/revoke separate workspace credentials; hash
-   them in storage; reject them on all existing administrative APIs. Revalidate
-   owner/account/workspace state at each operation. Rotation, transfer and parent
-   deletion must revoke credentials and handle children before ownership changes.
-2. **Persistent intent and budgets:** store lifecycle state and reserve combined
-   CPU, memory, count, storage and anonymous-volume budgets atomically. Include
-   pending/failed/deleting workloads until Kubernetes cleanup is confirmed.
-   Choose namespace-per-group vs shared-namespace explicitly; enforce group
-   quotas in Kubernetes where possible.
-3. **Safe admission:** no host namespace/mounts, privileged containers, runtime
-   sockets, arbitrary service accounts or token automount. Default to non-root,
-   dropped capabilities and RuntimeDefault seccomp. Validate compatibility with
-   images requiring a different UID rather than silently granting root access.
-4. **Storage authorization:** derive PVCs from trusted database relationships;
-   resolve directories against allowed parent mounts with race-safe symlink
-   handling. Never trust a client-relative path alone or widen sharing to the
-   entire home/Secrets. Handle root-squash, UID/fsGroup and RWO/RWX constraints.
-5. **Networking:** enforce parent/child group isolation using Hub-owned labels
-   and NetworkPolicy, permit only declared ports, preserve existing private
-   egress restrictions. Narrowly permit the parent to reach the scoped Hub API.
-   No public routes or exports by default. Test CNI behavior, including IPv6.
-6. **Lifecycle reconciliation:** recover partial creates/deletes after restart;
-   never release reservations before confirmed cleanup; maintain exit status;
-   preserve named volumes; make `--rm` independent of CLI connectivity.
-7. **Streaming:** implement Kubernetes exec/attach protocol negotiation, then
-   Hub transport with stdin/stdout/stderr/status/resize framing, cancellation,
-   timeouts, concurrency bounds and authorization. Do not hold the global
-   mutation lock for long-running sessions.
-8. **Verification:** use a dedicated test database and isolated cluster to test
-   cross-owner denial, concurrent quota exhaustion, image failures, restart
-   recovery, network isolation, mount escapes, readonly mounts, exec disconnects
-   and remote exit codes.
+Secret references, registry credentials and standalone binary release downloads
+remain follow-on work. This is not full Docker/Compose compatibility.
 
 Source development does not imply deployment or any private-cluster changes.

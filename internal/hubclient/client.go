@@ -90,7 +90,7 @@ func (c *Client) Do(ctx context.Context, method, endpoint string, input, output 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		return fmt.Errorf("workload API or resource unavailable (HTTP 404); the current Hub release does not implement this experimental API")
+		return fmt.Errorf("workload API or resource unavailable (HTTP 404); check the Hub version and parent-scoped resource name")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("Hub workload API returned HTTP %d", resp.StatusCode)

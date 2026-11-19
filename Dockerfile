@@ -1,3 +1,12 @@
+FROM --platform=$BUILDPLATFORM golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea AS cli-build
+ARG TARGETOS
+ARG TARGETARCH
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY internal ./internal
+COPY cmd/herdr-hub ./cmd/herdr-hub
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/herdr-hub ./cmd/herdr-hub
+
 # Bun/JSC cannot reliably run under QEMU. Keep tests mandatory and native even
 # when the workspace image is cross-built on the ARM CI runner.
 FROM --platform=$BUILDPLATFORM oven/bun:1.4.3@sha256:ec06c3b6cea04192ae6770c434f668ca41d343ad19fa6472216c7b48be39c598 AS ovis-test
@@ -38,6 +47,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && chmod 0755 /usr/sbin/policy-rc.d
 
 COPY docker/apt-updates.conf /etc/apt/apt.conf.d/52herdr-container
+COPY --from=cli-build /out/herdr-hub /usr/local/bin/herdr-hub
 COPY docker/apt-persistence.conf /etc/apt/apt.conf.d/53herdr-persistence
 COPY docker/persist-packages.sh /usr/local/bin/herdr-persist-packages
 COPY docker/startup.sh /usr/local/share/herdr/startup.sh

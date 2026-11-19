@@ -67,6 +67,7 @@ type Item struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
 	Status   string `json:"status"`
+	Error    string `json:"error,omitempty"`
 	Hostname string `json:"hostname,omitempty"`
 	ExitCode *int   `json:"exit_code,omitempty"`
 	Spec     Spec   `json:"spec"`

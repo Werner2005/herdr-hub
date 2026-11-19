@@ -1,8 +1,9 @@
 module github.com/Werner2005/herdr-hub
 
-go 1.27.0
+go 1.27.4
 
 require (
+	github.com/coder/websocket v1.8.14
 	github.com/jackc/pgx/v5 v5.11.0
 	golang.org/x/crypto v0.58.0
 )

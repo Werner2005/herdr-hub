@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Werner2005/herdr-hub/internal/workload"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -30,6 +31,7 @@ type application struct {
 	insecureCookies bool
 	trustedProxies  []*net.IPNet
 	auditLogger     *log.Logger
+	childSessions   childSessionLimiter
 }
 
 type workspace struct {
@@ -103,6 +105,7 @@ func main() {
 	go a.runConfigurationUpdates(context.Background())
 	go a.runPortUpdates(context.Background())
 	go a.runEgressUpdates(context.Background())
+	go a.runChildUpdates(context.Background())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, c := context.WithTimeout(r.Context(), 2*time.Second)
@@ -149,7 +152,13 @@ func initializeDatabase(ctx context.Context, db *pgxpool.Pool) error {
    CREATE TABLE IF NOT EXISTS workspace_ports(workspace TEXT NOT NULL REFERENCES workspaces(name) ON DELETE CASCADE, name TEXT NOT NULL, id TEXT UNIQUE NOT NULL, protocol TEXT NOT NULL CHECK(protocol IN ('HTTP','TCP','UDP')), internal_port INTEGER NOT NULL CHECK(internal_port BETWEEN 1 AND 65535), external_port INTEGER NOT NULL DEFAULT 0, deleting BOOLEAN NOT NULL DEFAULT false, status TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '', PRIMARY KEY(workspace,name));
     CREATE UNIQUE INDEX IF NOT EXISTS workspace_external_port ON workspace_ports(external_port) WHERE external_port>0;
     CREATE TABLE IF NOT EXISTS hub_egress_defaults(id INTEGER PRIMARY KEY CHECK(id=1), rules JSONB NOT NULL, status TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '');
-    CREATE TABLE IF NOT EXISTS workspace_egress(workspace TEXT PRIMARY KEY REFERENCES workspaces(name) ON DELETE CASCADE, rules JSONB NOT NULL, status TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '');`)
+     CREATE TABLE IF NOT EXISTS workspace_egress(workspace TEXT PRIMARY KEY REFERENCES workspaces(name) ON DELETE CASCADE, rules JSONB NOT NULL, status TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '');
+     CREATE TABLE IF NOT EXISTS hub_child_access(parent TEXT PRIMARY KEY REFERENCES workspaces(name) ON DELETE CASCADE, budget JSONB NOT NULL);
+     CREATE TABLE IF NOT EXISTS hub_child_tokens(parent TEXT PRIMARY KEY REFERENCES workspaces(name) ON DELETE CASCADE, owner TEXT NOT NULL, hash TEXT UNIQUE NOT NULL, expires_at TIMESTAMPTZ NOT NULL);
+     CREATE TABLE IF NOT EXISTS hub_children(id TEXT PRIMARY KEY, parent TEXT NOT NULL REFERENCES workspaces(name), name TEXT NOT NULL, spec JSONB NOT NULL, mounts JSONB NOT NULL DEFAULT '[]',
+       status TEXT NOT NULL DEFAULT 'preparing', error TEXT NOT NULL DEFAULT '', exit_code INTEGER, expires_at TIMESTAMPTZ NOT NULL, UNIQUE(parent,name));
+     CREATE TABLE IF NOT EXISTS hub_child_volumes(id TEXT PRIMARY KEY, parent TEXT NOT NULL REFERENCES workspaces(name), name TEXT NOT NULL,
+       size TEXT NOT NULL, anonymous_for TEXT NOT NULL DEFAULT '', deleting BOOLEAN NOT NULL DEFAULT false, provisioned BOOLEAN NOT NULL DEFAULT false, UNIQUE(parent,name));`)
 	return err
 }
 
@@ -178,6 +187,10 @@ func (a *application) api(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 403, "invalid request origin")
 			return
 		}
+	}
+	if r.URL.Path == workload.APIPrefix || strings.HasPrefix(r.URL.Path, workload.APIPrefix+"/") {
+		u = a.childAPI(w, r)
+		return
 	}
 	if r.URL.Path == "/api/login" && r.Method == "POST" {
 		if !a.loginLimits.allowIP(a.clientIP(r), time.Now()) {
@@ -237,6 +250,10 @@ func (a *application) api(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(p, "/")
+	if len(parts) == 3 && parts[0] == "workspaces" && validName(parts[1]) && (parts[2] == "workload-access" || parts[2] == "workload-token") {
+		a.childAccessAPI(w, r, parts[1], parts[2])
+		return
+	}
 	if p == "egress-defaults" {
 		a.egressAPI(w, r, "")
 		return
@@ -385,8 +402,8 @@ func (a *application) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "name must be a lowercase DNS label, at most 40 characters")
 		return
 	}
-	if strings.HasPrefix(item.Name, "shared-") || strings.HasPrefix(item.Name, "config-") || strings.HasPrefix(item.Name, "export-") {
-		writeError(w, 400, "workspace names starting with shared-, config- or export- are reserved")
+	if strings.HasPrefix(item.Name, "shared-") || strings.HasPrefix(item.Name, "config-") || strings.HasPrefix(item.Name, "export-") || strings.HasPrefix(item.Name, "wl-") {
+		writeError(w, 400, "workspace names starting with shared-, config-, export- or wl- are reserved")
 		return
 	}
 	keys, keyErr := normalizePublicKeys(item.SSHKey)
@@ -635,6 +652,10 @@ func (a *application) list(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *application) remove(w http.ResponseWriter, r *http.Request, name string) {
+	if err := a.childReferences(r.Context(), name); err != nil {
+		writeError(w, 409, err.Error())
+		return
+	}
 	item, loadErr := a.load(r.Context(), name)
 	if loadErr != nil {
 		writeError(w, 404, "workspace not found")

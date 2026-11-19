@@ -8,6 +8,14 @@ import (
 // Undeployment retains the database entry, credentials, home and shared mounts.
 // Persist intent first so partial cleanup is retryable and workers leave it alone.
 func (a *application) undeploy(w http.ResponseWriter, r *http.Request, name string) {
+	if err := a.childReferences(r.Context(), name); err != nil {
+		writeError(w, 409, err.Error())
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM hub_child_tokens WHERE parent=$1`, name); err != nil {
+		writeError(w, 500, "could not revoke workload access")
+		return
+	}
 	item, err := a.load(r.Context(), name)
 	if err != nil {
 		writeError(w, 404, "workspace not found")

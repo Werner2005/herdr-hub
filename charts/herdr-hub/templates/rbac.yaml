@@ -8,6 +8,14 @@ kind: Role
 metadata:
   name: {{ include "herdr-hub.fullname" . }}
 rules:
+  {{- if .Values.workloads.enabled }}
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log", "pods/exec"]
+    verbs: ["get"]
+  {{- end }}
   - apiGroups: ["metrics.k8s.io"]
     resources: ["pods"]
     verbs: ["list"]

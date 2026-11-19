@@ -46,6 +46,8 @@ spec:
           env:
             - name: HUB_DOCS_ENABLED
               value: {{ .Values.hub.docsEnabled | quote }}
+            - name: WORKLOADS_ENABLED
+              value: {{ .Values.workloads.enabled | quote }}
             - name: HUB_INSECURE_COOKIES
               value: {{ .Values.hub.insecureCookies | quote }}
             - name: HUB_TRUSTED_PROXY_CIDRS

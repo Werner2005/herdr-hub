@@ -43,6 +43,12 @@ func (a *application) assignOwner(w http.ResponseWriter, r *http.Request, name s
 		writeError(w, 409, "detach shared volumes before reassigning the workspace")
 		return
 	}
+	if item.Owner != input.Owner {
+		if err := a.childReferences(r.Context(), name); err != nil {
+			writeError(w, 409, err.Error())
+			return
+		}
+	}
 	if item.Owner != input.Owner && len(item.Configurations) > 0 {
 		writeError(w, 409, "detach private configurations before reassigning the workspace; retained home files may contain copied secrets")
 		return
@@ -78,6 +84,12 @@ func (a *application) assignOwner(w http.ResponseWriter, r *http.Request, name s
 		}
 		if e = a.kube.rotateToken(r.Context(), name, true); e != nil {
 			writeError(w, 502, "workspace stopped; retry transfer: "+e.Error())
+			return
+		}
+		// A new owner requires an explicit administrator grant, not an inherited
+		// budget configured for the previous owner's workspace.
+		if _, err := a.db.Exec(r.Context(), `DELETE FROM hub_child_access WHERE parent=$1`, name); err != nil {
+			writeError(w, 500, "could not reset workload access")
 			return
 		}
 	}

@@ -61,6 +61,11 @@ workspaces:
   # Optional sandbox RuntimeClass provisioned by the cluster administrator.
   runtimeClassName: ""
 
+# Experimental child-workload API. Administrators must additionally grant a
+# per-workspace budget through workload-access. Requires enforced NetworkPolicy.
+workloads:
+  enabled: false
+
 # Optional DNS label. When set, this is used for the Deployment and Service names.
 subdomain: ""
 

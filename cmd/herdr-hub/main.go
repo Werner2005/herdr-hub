@@ -20,8 +20,8 @@ import (
 
 const help = `herdr-hub: experimental Hub-managed workload CLI
 
-This is a client/API-contract foundation. The current Hub has no workload API.
-Only run --dry-run works without the future scoped workload backend.
+Requires the default-off Hub workload API, a workspace budget and a scoped token.
+run --dry-run validates requests locally without contacting the Hub.
 
 Commands:
   run --name NAME [OPTIONS] IMAGE [COMMAND [ARG...]]
@@ -39,7 +39,7 @@ Run options (before IMAGE):
   -d, --detach       return after creation (required for live run in this slice)
   --cpu 500m        finite CPU limit; server must enforce group budget
   --memory 512Mi    finite memory limit
-  -e KEY=VALUE      repeatable; avoid credentials, use future secret references
+  -e KEY=VALUE      repeatable; values stored only in a Kubernetes Secret
   -v SRC:DST[:ro|rw] repeatable named volume or authorized workspace directory
   -v /DST           anonymous volume
   -w /DIR           working directory

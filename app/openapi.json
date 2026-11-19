@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Herdr Hub API",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Manage Kubernetes workspaces, accounts, API tokens, shared storage and configuration. Use Authorize to enter an API token (without the Bearer prefix). Named API tokens have full admin access as their owner. Browser sessions are also supported. Any supplied Origin header on a mutating request must match the Hub origin. Errors are JSON objects with an error string. Operations may return 400 (invalid input), 401 (authentication required), 403 (permission denied), 404 (not found or not visible), 409 (conflict), 413 (body too large), 429 (login throttled), 500 (database/internal failure), 502 (Kubernetes failure), or 503 (request expired)."
   },
   "servers": [{"url": "/"}],

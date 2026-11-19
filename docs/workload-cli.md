@@ -26,8 +26,8 @@ Source changes do not enable the feature or deploy anything.
 
 Enable `workloads.enabled: true` in Helm values. Enforced NetworkPolicy is required;
 Helm refuses `networkPolicy.enabled: false` with this feature enabled.
-Enabling adds namespace Pod create/get/delete and Pod log/exec get permissions to
-the Hub, and permits workspace-to-Gateway HTTPS TCP 443 traffic. It does not give
+Enabling adds namespace Pod create/get/delete, Pod log get, and Pod exec get/create
+permissions to the Hub, and permits workspace-to-Gateway HTTPS TCP 443 traffic. It does not give
 workspaces Kubernetes credentials.
 
 Through the normal authenticated Hub API:

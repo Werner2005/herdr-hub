@@ -7,6 +7,14 @@ inspection, removal, private networking, PVCs, log snapshots and bounded
 non-interactive exec. The workspace image includes the `herdr-hub` CLI.
 Do not put an administrator or workspace web token into this CLI.
 
+Workspace home initialization also installs a bundled **`herdr-hub` agent skill**
+at `~/.agents/skills/herdr-hub/SKILL.md` when missing. It explains commands,
+authentication, private connectivity, volumes, cleanup and current limitations.
+It is added to existing persistent homes on startup with the new image, without
+overwriting user-edited skills. Restart the coding agent after installation so it
+discovers the skill. Installing the skill does not enable API access or deploy
+anything automatically.
+
 The backend uses the existing namespace with parent-scoped database reservations,
 immutable random resource IDs and Kubernetes limits. It does not provision
 namespace-per-group quotas. Integration tests use dedicated PostgreSQL and a

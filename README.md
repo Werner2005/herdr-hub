@@ -17,12 +17,12 @@ for configuration, security boundaries and remaining interactive-session work.
 
 | Artifact | Location |
 | --- | --- |
-| Workspace image | `ghcr.io/werner2005/herdr-hub/workspace:v0.1` |
-| Hub image | `ghcr.io/werner2005/herdr-hub/hub:v0.1` |
+| Workspace image | `ghcr.io/werner2005/herdr-hub/workspace:v0.2` |
+| Hub image | `ghcr.io/werner2005/herdr-hub/hub:v0.2` |
 | Helm chart | `oci://ghcr.io/werner2005/herdr-hub/charts/herdr-hub` |
 
-Images support Linux **amd64 and arm64**. The first release is **v0.1**;
-its Helm chart version is **0.1.0**. Published artifacts are public and require
+Images support Linux **amd64 and arm64**. The current release is **v0.2**;
+its Helm chart version is **0.2.0**. Published artifacts are public and require
 no registry credentials. SHA tags identify tested builds; `main` tracks the
 development branch and `latest` tracks the most recently published stable release.
 Prefer an explicit release or digest in production.
@@ -37,7 +37,7 @@ docker run -d --name herdr-workspace \
   -p 127.0.0.1:7317:7317 -p 127.0.0.1:2222:2222 \
   -e OVIS_TOKEN \
   -v herdr-home:/home/dev \
-  ghcr.io/werner2005/herdr-hub/workspace:v0.1
+  ghcr.io/werner2005/herdr-hub/workspace:v0.2
 ```
 
 Retain your token securely and use it to sign in at <http://localhost:7317>.
@@ -89,7 +89,7 @@ kubectl create secret generic herdr-hub-auth -n herdr \
 
 helm upgrade --install herdr-hub \
   oci://ghcr.io/werner2005/herdr-hub/charts/herdr-hub \
-  --version 0.1.0 --namespace herdr \
+  --version 0.2.0 --namespace herdr \
   -f values.yaml --wait --timeout 10m
 
 kubectl wait -n herdr certificate/hub-gateway-tls \
@@ -171,8 +171,8 @@ To release:
 3. Push a version tag, for example:
 
    ```sh
-   git tag -a v0.1 -m "Herdr Hub v0.1"
-   git push origin v0.1
+   git tag -a v0.2 -m "Herdr Hub v0.2"
+   git push origin v0.2
    ```
 
 Tags use `vMAJOR.MINOR` or `vMAJOR.MINOR.PATCH`; Helm always uses three components.

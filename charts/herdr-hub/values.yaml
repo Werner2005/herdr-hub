@@ -42,7 +42,7 @@ hub:
   trustedProxyCIDRs: ""
 
 workspaces:
-  image: ghcr.io/werner2005/herdr-hub/workspace:v0.1
+  image: ghcr.io/werner2005/herdr-hub/workspace:v0.2
   imagePullPolicy: IfNotPresent
   domain: ""
   gatewayName: ""
@@ -71,7 +71,7 @@ subdomain: ""
 
 image:
   repository: ghcr.io/werner2005/herdr-hub/hub
-  tag: v0.1
+  tag: v0.2
   pullPolicy: IfNotPresent
 
 # Existing registry credentials in the release namespace.

@@ -13,6 +13,12 @@ import (
 // Stop all old processes before changing credentials. Persist the stop intent
 // first so image reconciliation cannot recreate or update the retiring runtime.
 func (a *application) stopForCredentialChange(ctx context.Context, item workspace) error {
+	if err := a.childReferences(ctx, item.Name); err != nil {
+		return err
+	}
+	if _, err := a.db.Exec(ctx, `DELETE FROM hub_child_tokens WHERE parent=$1`, item.Name); err != nil {
+		return err
+	}
 	if item.Status == "deleting" {
 		return fmt.Errorf("workspace is deleting")
 	}

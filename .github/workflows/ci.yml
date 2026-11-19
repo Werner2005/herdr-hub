@@ -37,11 +37,12 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.27.4'
-      - run: go test -race ./app
-      - run: go vet ./app
+      - run: go test -race ./...
+      - run: go vet ./...
+      - run: go build -o /tmp/herdr-hub-cli ./cmd/herdr-hub
       - run: go mod verify
       - run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
-      - run: govulncheck ./app
+      - run: govulncheck ./...
 
   web:
     runs-on: ubuntu-24.04
